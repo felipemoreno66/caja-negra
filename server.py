@@ -31,6 +31,14 @@ CONTROL_RE = re.compile(r"[0-9]{1,2}", re.ASCII)
 AMOUNT_RE = re.compile(r"[1-9][0-9]{0,9}", re.ASCII)
 
 
+_ASCII_UPPER = str.maketrans("abcdefghijklmnopqrstuvwxyz", "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+
+def ascii_upper(text):
+    """Mayúsculas solo para a-z: el original no convierte "ß" en "SS" ni "ı" en "I"."""
+    return text.translate(_ASCII_UPPER)
+
+
 def err(status, code, mensaje, **extra):
     return status, {"error": code, "mensaje": mensaje, **extra}
 
@@ -38,10 +46,10 @@ def err(status, code, mensaje, **extra):
 # --- Integridad ---------------------------------------------------------------
 
 def control(body):
-    """Letras -> A=1..Z=26 (sin distinguir mayúsculas), dígitos tal cual, el resto se ignora.
+    """Letras ASCII -> A=1..Z=26 (sin distinguir mayúsculas), dígitos ASCII tal cual, el resto se ignora.
     Se concatena como número N y el control es 98 - (N*100 mod 97)."""
     n = 0  # N mod 97, dígito a dígito: N puede tener miles de dígitos
-    for ch in body.upper():
+    for ch in ascii_upper(body):
         if "A" <= ch <= "Z":
             digits = str(ord(ch) - 64)
         elif "0" <= ch <= "9":
@@ -185,8 +193,9 @@ HANDLERS = {
 def handle_message(st, raw_body):
     """Procesa el cuerpo de POST /msg en el mismo orden de validación que el original."""
     try:
-        payload = json.loads(raw_body.decode("utf-8"), parse_constant=_reject_constant)
-    except (ValueError, UnicodeDecodeError):
+        # Los bytes UTF-8 inválidos se reemplazan por U+FFFD, como hace el original.
+        payload = json.loads(raw_body.decode("utf-8", errors="replace"), parse_constant=_reject_constant)
+    except ValueError:
         return err(400, "E100", "json inválido")
     m = payload.get("m") if isinstance(payload, dict) else None
     if not isinstance(m, str):
@@ -197,7 +206,7 @@ def handle_message(st, raw_body):
     if any(s == "" for s in segments):
         return err(400, "E104", "segmento vacío")
 
-    cmd = segments[0].upper()
+    cmd = ascii_upper(segments[0])
     if cmd == "PING":  # PING no valida el control, solo la aridad
         if len(segments) != 2:
             return err(400, "E302", "aridad inválida")

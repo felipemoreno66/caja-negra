@@ -5,7 +5,7 @@ el resto se ignora. Se concatena como número N y control = 98 - (N*100 mod 97).
 
 def control(body: str) -> int:
     n = 0  # N mod 97, dígito a dígito (N puede tener miles de dígitos)
-    for ch in body.upper():
+    for ch in body.translate(str.maketrans("abcdefghijklmnopqrstuvwxyz", "ABCDEFGHIJKLMNOPQRSTUVWXYZ")):
         if "A" <= ch <= "Z":
             digits = str(ord(ch) - 64)
         elif "0" <= ch <= "9":
