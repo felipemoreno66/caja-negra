@@ -34,7 +34,7 @@ fue a otra ruta, la línea trae además `metodo` y `ruta`, y `auth` cuando se ma
 | ENT-10b | **Profundidad máxima del JSON: 20 niveles**, contando la raíz y arrays u objetos por igual. Con 21 o más responde `400 E100`, aunque el JSON sea válido; los corchetes dentro de strings no cuentan. | 2666–2682, 2701–2709 | confirmado |
 | ENT-10c | Tres veces, con anidamientos de 3.000 niveles, el original respondió `500 {"error":"E599"}` sin `mensaje`. Al repetir esos mismos cuerpos respondió siempre `400 E100` (6 de 6), así que lo tratamos como un fallo interno transitorio y el reemplazo responde E100. | 2661, 2662, 2673, 2696, 2697, 2710–2715 | probable |
 | ENT-11 | Cada token tiene su propio estado (lo dice el README). El reemplazo atiende un único token, el del equipo. | README | supuesto |
-| ENT-12 | Métodos HTTP no estándar (por ejemplo `TRACE` o inventados) responden 404 E404 como el resto. | — | supuesto |
+| ENT-12 | Métodos HTTP no estándar: `TRACE` responde 404 E404 como cualquier ruta inexistente; métodos en minúsculas (`post`, `get`) o inventados (`FOO`) responden `400` sin cuerpo, como el parser HTTP de Node; `CONNECT` responde `405` sin cuerpo (lo genera el proxy). | 2885–2889, 2897–2902, 2909, 2931 | confirmado |
 
 ## 2. Integridad
 
@@ -84,7 +84,7 @@ Cualquier otra cantidad de argumentos responde `400 {"error":"E302","mensaje":"a
 | ID | Comportamiento | Evidencia | Confianza |
 |---|---|---|---|
 | CMD-ALTA-1 | Crea una cuenta con saldo 0 y responde `201 {"cuentaId":"AC-0001"}`. Los ids son correlativos desde `AC-0001`, con 4 dígitos. | 4, 5, 848, 849, 860 | confirmado |
-| CMD-ALTA-2 | Acepta cualquier nombre no vacío: duplicados, minúsculas, solo números, una letra, 100 o 1.000 caracteres, guiones, apóstrofes, tildes, `ñ` y un solo espacio. No guarda ni devuelve el nombre. | 849, 850, 851, 852, 853, 854, 855, 856, 857, 858 | confirmado |
+| CMD-ALTA-2 | Acepta cualquier nombre no vacío: duplicados, minúsculas, solo números, una letra, 100 o 1.000 caracteres, guiones, apóstrofes, tildes, `ñ` y un solo espacio. No devuelve el nombre, pero en v2 lo usa para identificar al titular (CMD-TRF-9). | 849, 850, 851, 852, 853, 854, 855, 856, 857, 858 | confirmado |
 | CMD-ALTA-3 | Después de `AC-9999` el id sigue como `AC-10000`. | — | supuesto |
 
 ### CONSULTA;cuenta
@@ -176,7 +176,7 @@ Todos los cuerpos de error son `{"error": <código>, "mensaje": <texto>}`; E301 
 | E304 | 400 | `origen y destino iguales` | TRANSFER a la misma cuenta | 913 |
 | E401 | 404 | `cuenta inexistente` | cuenta no existe | 16 |
 | E402 | 404 | `operación inexistente` | operación no existe | 936 |
-| E506 | 422 | `límite excedido` | TRANSFER > 100.000 | 10 |
+| E506 | 422 | `límite excedido` | TRANSFER > 50.000 entre titulares distintos (v2; en v1, > 100.000) | 6056, 10 |
 | E507 | 422 | `saldo insuficiente` | TRANSFER sin fondos (en v2 cuenta para el bloqueo) | 17, 6085 |
 | E510 | 423 | `cuenta bloqueada` + campo `intentos` | **v2:** TRANSFER desde una cuenta bloqueada | 5604, 6068 |
 | E520 | 409 | `operación destructiva: detiene el servicio; reenvía con confirmación` | HALT sin confirmar | 815 |
@@ -214,7 +214,7 @@ conserva porque el reto exige un comportamiento idéntico.
 | RSK-03 | `ANULA` revierte sin validar saldos y deja cuentas en negativo; tampoco limita quién anula ni cuándo. | 933 | Validar fondos, registrar una operación compensatoria y restringir la anulación al titular y a una ventana de tiempo. |
 | RSK-04 | El límite de transferencia (50.000 en v2) es por operación y se evade dividiendo el monto. | 908, 909, 910, 6020 | Límite acumulado por cuenta y por día. |
 | RSK-05 | El control mod 97 detecta errores de tipeo pero no autentica: cualquiera lo calcula. Además PING no lo valida. | INT-03, INT-06 | Firmar los mensajes con un HMAC con secreto y validar igual todos los comandos. |
-| RSK-06 | ALTA acepta cualquier nombre (un espacio, 1.000 caracteres, duplicados) y no lo guarda. | 854, 858, 849 | Validar y guardar el titular. |
+| RSK-06 | ALTA acepta cualquier nombre (un espacio, 1.000 caracteres, duplicados) sin validarlo. | 854, 858, 849 | Validar y guardar el titular. |
 | RSK-07 | El contrato es inconsistente: `recieved`, `"comando desconocido "` con espacio, `cuentaId` frente a `cuenta_id`, `200` con `ok:false` en "ya anulada" y mensajes mezclando español e inglés. | 7, 13, 4, 6, 15, 831 | Publicar una versión nueva del contrato manteniendo la actual por compatibilidad. |
 | RSK-08 | Los depósitos no tienen tope acumulado: el saldo crece sin límite. | 902 | Tope por operación y por día, alineado con las reglas del negocio. |
 | RSK-09 | Con anidamientos JSON muy profundos el original llegó a responder `500` sin `mensaje`, de forma intermitente: el parser no está protegido. | 2661, 2662, 2673 | Limitar profundidad y tamaño antes de parsear y devolver siempre un error del contrato. |
