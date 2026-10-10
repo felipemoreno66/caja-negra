@@ -92,6 +92,7 @@ class State:
     def reset(self):
         self.halted = False
         self.accounts = {}  # "AC-0001" -> saldo en céntimos
+        self.owners = {}  # "AC-0001" -> nombre del titular tal como llegó en ALTA
         self.ops = {}  # "OP-0001" -> dict
         self.rejections = {}  # v2: cuenta -> rechazos seguidos como origen (E506/E507)
         self.blocked = {}  # v2: cuenta bloqueada -> intentos de transferir desde ella
@@ -129,6 +130,7 @@ def cmd_alta(st, args):
     acc_id = f"AC-{st.next_account:04d}"
     st.next_account += 1
     st.accounts[acc_id] = 0
+    st.owners[acc_id] = args[0]
     return 201, {"cuentaId": acc_id}
 
 
@@ -170,7 +172,8 @@ def cmd_transfer(st, args):
         st.blocked[origen] += 1
         return err(423, "E510", "cuenta bloqueada", intentos=st.blocked[origen])
     monto = int(monto)
-    if monto > TRANSFER_LIMIT:
+    # v2: el límite no aplica entre cuentas del mismo titular (nombre idéntico, distingue mayúsculas).
+    if monto > TRANSFER_LIMIT and st.owners[origen] != st.owners[destino]:
         return st.reject(origen, 422, "E506", "límite excedido")
     if st.accounts[origen] < monto:
         return st.reject(origen, 422, "E507", "saldo insuficiente")
