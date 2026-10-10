@@ -30,10 +30,13 @@ def replay(e):
     auth = e.get("auth")
     token = None if auth == "sin token" else ("otro-token" if auth == "token distinto" else TEAM)
     kw = {}
+    if "auth_header" in e:
+        kw["headers"] = {"Authorization": e["auth_header"].replace("<TOKEN>", TEAM)}
+        token = None
     if e.get("raw") or "content_type" in e:
         kw["body"] = e["request"] or ""
         if "content_type" in e:
-            kw["headers"] = {"Content-Type": e["content_type"]}
+            kw.setdefault("headers", {})["Content-Type"] = e["content_type"]
     elif e["request"] is not None:
         kw["json_body"] = e["request"]
     return send(method, path, base=BASE, token=token, log=False, **kw)

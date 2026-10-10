@@ -4,13 +4,16 @@ el resto se ignora. Se concatena como número N y control = 98 - (N*100 mod 97).
 
 
 def control(body: str) -> int:
-    digits = []
+    n = 0  # N mod 97, dígito a dígito (N puede tener miles de dígitos)
     for ch in body.upper():
         if "A" <= ch <= "Z":
-            digits.append(str(ord(ch) - 64))
-        elif ch.isdigit():
-            digits.append(ch)
-    n = int("".join(digits) or "0")
+            digits = str(ord(ch) - 64)
+        elif "0" <= ch <= "9":
+            digits = ch
+        else:
+            continue
+        for d in digits:
+            n = (n * 10 + int(d)) % 97
     return 98 - (n * 100) % 97
 
 

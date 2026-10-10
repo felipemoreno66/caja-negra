@@ -126,7 +126,10 @@ def send(method, path, *, base=None, body=None, json_body=_DEFAULT, headers=None
         if (method, path) != ("POST", "/msg"):
             entry["metodo"] = method
             entry["ruta"] = path
-        if tok != TOKEN:
+        custom = next((v for k, v in (headers or {}).items() if k.lower() == "authorization"), None)
+        if custom is not None:
+            entry["auth_header"] = custom.replace(TOKEN, "<TOKEN>") if TOKEN else custom
+        elif tok != TOKEN:
             entry["auth"] = "sin token" if tok is None else "token distinto"
         if json_body is _DEFAULT and raw_body:
             entry["raw"] = True

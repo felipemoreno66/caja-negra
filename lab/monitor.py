@@ -2,6 +2,7 @@
 con lo que respondió antes. Cada request queda en el log como un experimento más.
 
   python3 lab/monitor.py              # una pasada
+  python3 lab/monitor.py --all        # todas las secuencias del log
   python3 lab/monitor.py --loop 3600  # una pasada cada hora hasta las 19:50
 """
 import json, sys, time
@@ -59,6 +60,9 @@ def run_once():
 
 
 if __name__ == "__main__":
+    if "--all" in sys.argv:
+        SEQS[:] = [k for k, v in load().items()
+                   if not k.startswith(("monitor-", "oraculo")) and (v[0].get("ruta") == "/__reset" or k.startswith("entrada-") or k == "ejemplos-oficiales")]
     if "--loop" in sys.argv:
         every = int(sys.argv[sys.argv.index("--loop") + 1])
         while True:

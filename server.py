@@ -12,7 +12,6 @@ import os
 import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlsplit
 
 TEAM_TOKEN = os.environ.get("TEAM_TOKEN", "")
 PORT = int(os.environ.get("PORT", "8000"))
@@ -27,6 +26,7 @@ COMMANDS = {  # comando -> cantidad de argumentos (sin contar el control)
     "TRANSFER": 3,
 }
 TRANSFER_LIMIT = 100_000
+MAX_BODY_BYTES = 8192
 CONTROL_RE = re.compile(r"[0-9]{1,2}", re.ASCII)
 AMOUNT_RE = re.compile(r"[1-9][0-9]{0,9}", re.ASCII)
 
@@ -40,13 +40,16 @@ def err(status, code, mensaje, **extra):
 def control(body):
     """Letras -> A=1..Z=26 (sin distinguir mayúsculas), dígitos tal cual, el resto se ignora.
     Se concatena como número N y el control es 98 - (N*100 mod 97)."""
-    digits = []
+    n = 0  # N mod 97, dígito a dígito: N puede tener miles de dígitos
     for ch in body.upper():
         if "A" <= ch <= "Z":
-            digits.append(str(ord(ch) - 64))
+            digits = str(ord(ch) - 64)
         elif "0" <= ch <= "9":
-            digits.append(ch)
-    n = int("".join(digits) or "0")
+            digits = ch
+        else:
+            continue
+        for d in digits:
+            n = (n * 10 + int(d)) % 97
     return 98 - (n * 100) % 97
 
 
@@ -245,11 +248,13 @@ class Handler(BaseHTTPRequestHandler):
         return self.rfile.read(length) if length > 0 else b""
 
     def _dispatch(self):
-        path = urlsplit(self.path).path
+        # Ruta tal como llegó: http.server colapsa "//msg" a "/msg" en self.path, el original no.
+        raw_target = self.requestline.split(" ")[1] if self.requestline.count(" ") >= 2 else self.path
+        path = raw_target.split("?", 1)[0]
         body = self._read_body()
         if (self.command, path) not in ROUTES:
             return self._send(*err(404, "E404", "ruta desconocida"))
-        if self.headers.get("Authorization") != f"Bearer {TEAM_TOKEN}" or not TEAM_TOKEN:
+        if (self.headers.get("Authorization") or "").strip() != f"Bearer {TEAM_TOKEN}" or not TEAM_TOKEN:
             return self._send(*err(401, "E001", "no autorizado"))
         with LOCK:
             if path == "/health":
@@ -259,6 +264,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, {"ok": True})
             if STATE.halted:
                 return self._send(*err(503, "E599", "service halted"))
+            if len(body) > MAX_BODY_BYTES:
+                return self._send(*err(413, "E101", "cuerpo demasiado grande"))
             return self._send(*handle_message(STATE, body))
 
     do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = do_OPTIONS = _dispatch
