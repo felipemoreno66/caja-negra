@@ -17,18 +17,22 @@ fue a otra ruta, la línea trae además `metodo` y `ruta`, y `auth` cuando se ma
 
 | ID | Comportamiento | Evidencia | Confianza |
 |---|---|---|---|
-| ENT-01 | Solo existen tres rutas: `GET /health`, `POST /msg` y `POST /__reset`. Cualquier otra combinación de método y ruta (`GET /`, `GET /msg`, `PUT /msg`, `DELETE /msg`, `POST /msg/`, `POST /MSG`, `GET /__reset`, rutas inventadas) responde `404 {"error":"E404","mensaje":"ruta desconocida"}`. | 680, 682, 683, 684, 685, 686, 687, 688, 697 | confirmado |
+| ENT-01 | Solo existen tres rutas: `GET /health`, `POST /msg` y `POST /__reset`. Cualquier otra combinación de método y ruta (`GET /`, `GET /msg`, `PUT /msg`, `DELETE /msg`, `PATCH`, `OPTIONS` en cualquier ruta, `POST /msg/`, `POST /MSG`, `POST //msg`, `POST /msg%20`, `POST /msg/../msg`, `GET /health/`, `GET /HEALTH`, `GET /__reset`, `POST /__reset/`, rutas inventadas) responde `404 {"error":"E404","mensaje":"ruta desconocida"}`. La ruta se compara literal, sin normalizar barras ni `..`. `HEAD` en cualquier ruta responde 404 sin cuerpo. | 680, 682–688, 697, 2036–2056 | confirmado |
 | ENT-02 | La ruta se valida antes que la autenticación: una ruta inexistente sin token responde 404, no 401. | 693, 843 | confirmado |
-| ENT-03 | En las tres rutas existentes, sin header `Authorization`, con un token distinto o con un header que no sigue el formato `Bearer <token>`, la respuesta es `401 {"error":"E001","mensaje":"no autorizado"}`. Incluye `/health` y `/__reset`. | 690, 691, 692, 694, 695, 696, 844 | confirmado |
+| ENT-03 | En las tres rutas existentes, sin header `Authorization`, con un token distinto o con un header que no sigue el formato exacto `Bearer <token>`, la respuesta es `401 {"error":"E001","mensaje":"no autorizado"}`. Incluye `/health` y `/__reset`. El esquema distingue mayúsculas (`bearer`, `BEARER` → 401), exige un solo espacio (`Bearer  <token>` → 401) y no admite `Token`, `Basic`, `Bearer` vacío ni basura tras el token. | 690, 691, 692, 694, 695, 696, 844, 2058–2063, 2066–2077 | confirmado |
+| ENT-03b | Los espacios al final del valor del header se ignoran: `Bearer <token> ` se acepta (como recorta HTTP el valor del header). | 2064, 2065 | confirmado |
 | ENT-04 | `GET /health` con token válido responde `200 {"ok":true}`, también con el servicio detenido por HALT. | 681, 842 | confirmado |
 | ENT-05 | `POST /__reset` con token válido responde `200 {"ok":true}` y devuelve el estado inicial (ver MEM-06). | 1, 845, 846 | confirmado |
-| ENT-06 | El query string se ignora: `POST /msg?x=1` se comporta como `POST /msg`. | 689 | probable |
-| ENT-07 | El cuerpo se interpreta como JSON sin importar el `Content-Type`. Un cuerpo vacío, JSON roto o texto plano responde `400 {"error":"E100","mensaje":"json inválido"}`; un JSON válido sin `Content-Type` se procesa normalmente. | 698, 699, 700, 701, 702 | confirmado |
-| ENT-08 | Si el JSON no es un objeto con la clave `m` (minúscula) de tipo string, responde `400 {"error":"E102","mensaje":"falta m"}`: objeto vacío, otra clave, `M`, `m` numérico, `null` o array, array o string en la raíz. | 703, 704, 705, 706, 707, 710, 711, 712 | confirmado |
+| ENT-06 | El query string se ignora: `POST /msg?x=1` y `GET /health?x=1` se comportan como sin query. | 689, 2057 | confirmado |
+| ENT-07 | El cuerpo se interpreta como JSON sin importar el `Content-Type`. Un cuerpo vacío, JSON roto o texto plano responde `400 {"error":"E100","mensaje":"json inválido"}`; un JSON válido sin `Content-Type`, con `Content-Type: text/html` o enviado en trozos (`Transfer-Encoding: chunked`) se procesa normalmente. También son E100: cuerpo con BOM, `NaN`, solo espacios, coma final, comillas simples, `application/x-www-form-urlencoded`, un salto de línea literal dentro de un string y UTF-16. | 698–702, 2078, 2079, 2083, 2087–2090, 2228, 2656 | confirmado |
+| ENT-07b | Los bytes UTF-8 inválidos dentro del JSON no son error: se reemplazan por `U+FFFD` y el mensaje se procesa (un PING con un byte `0xFF` responde pong; un ALTA con un byte suelto en el nombre crea la cuenta). Fuera de un string, el JSON queda inválido (E100). | 2222, 2223, 2224, 2225, 2227 | confirmado |
+| ENT-08 | Si el JSON no es un objeto con la clave `m` (minúscula) de tipo string, responde `400 {"error":"E102","mensaje":"falta m"}`: objeto vacío, otra clave, `M`, `m` numérico, `null` o array, array, string, número, `true` o `null` en la raíz, o `m` dentro de otro objeto. Con claves duplicadas gana la última, y los escapes `\uXXXX` se decodifican antes de interpretar el mensaje. | 703–707, 710, 711, 712, 2080, 2081, 2082, 2084, 2085, 2086 | confirmado |
 | ENT-09 | Las claves adicionales del objeto se ignoran. | 709 | probable |
-| ENT-10 | No observamos límite de tamaño: un mensaje de 2.000 caracteres y un nombre de 1.000 se procesan sin error de tamaño. | 716, 720, 854 | probable |
+| ENT-10 | **Límite de tamaño:** en `POST /msg`, un cuerpo de más de 8.192 bytes responde `413 {"error":"E101","mensaje":"cuerpo demasiado grande"}`; 8.192 bytes exactos se aceptan. Cuenta bytes, no caracteres (4.113 caracteres con `ñ` = 8.213 bytes → 413). Se evalúa después de la ruta, el token y el servicio detenido, y antes de interpretar el JSON (un cuerpo grande no-JSON da E101). `/__reset` y `/health` ignoran el cuerpo. | 2091, 2099, 2109–2112, 2114–2119, 2124, 2657 | confirmado |
+| ENT-10b | **Profundidad máxima del JSON: 20 niveles**, contando la raíz y arrays u objetos por igual. Con 21 o más responde `400 E100`, aunque el JSON sea válido; los corchetes dentro de strings no cuentan. | 2666–2682, 2701–2709 | confirmado |
+| ENT-10c | Tres veces, con anidamientos de 3.000 niveles, el original respondió `500 {"error":"E599"}` sin `mensaje`. Al repetir esos mismos cuerpos respondió siempre `400 E100` (6 de 6), así que lo tratamos como un fallo interno transitorio y el reemplazo responde E100. | 2661, 2662, 2673, 2696, 2697, 2710–2715 | probable |
 | ENT-11 | Cada token tiene su propio estado (lo dice el README). El reemplazo atiende un único token, el del equipo. | README | supuesto |
-| ENT-12 | Métodos no probados (`PATCH`, `HEAD`, `OPTIONS`) en cualquier ruta responden 404 E404 como los demás métodos no soportados. | — | supuesto |
+| ENT-12 | Métodos HTTP no estándar (por ejemplo `TRACE` o inventados) responden 404 E404 como el resto. | — | supuesto |
 
 ## 2. Integridad
 
@@ -42,9 +46,10 @@ salvo en PING.
 | INT-03 | **PING no valida el control.** Si el primer segmento es `PING` (sin distinguir mayúsculas) y hay exactamente 2 segmentos, responde pong sea cual sea el segundo: `6`, `064`, `99`, dígitos árabes, con espacios o salto de línea. | 726, 727, 728, 729, 730, 731, 734, 735, 736, 737, 997, 998 | confirmado |
 | INT-04 | PING con más de 2 segmentos responde `400 E302` sin mirar el control. | 716, 718, 719, 720, 1013 | confirmado |
 | INT-05 | En el resto de comandos el control debe ser 1 o 2 dígitos ASCII (`^[0-9]{1,2}$`). Si no, responde `400 {"error":"E201","mensaje":"control mal formado"}`: tres dígitos (`014`, `050`, `111`), signo, espacios, punto, letras, salto de línea final o dígitos no ASCII. El control siempre es el último segmento: en `CONSULTA;AC-0001`, sin control, se toma `AC-0001` como control y responde E201. | 18, 24, 25, 27, 28, 29, 35, 713, 1003, 1004, 1005, 1010, 1011 | confirmado |
-| INT-06 | **Algoritmo del control.** Sobre el mensaje sin el control (segmentos unidos por `;`): cada letra A–Z, sin distinguir mayúsculas, se reemplaza por su posición (A=1 … Z=26); cada dígito queda igual; cualquier otro carácter (`;`, `-`, espacios, tildes, `ñ`) se ignora. Se concatena todo como un número entero N (0 si no queda nada) y el control es `98 − (N × 100 mod 97)`, un valor entre 1 y 98. Ejemplo: `PING` → `16 9 14 7` → N = 169147 → control 64. | Oráculo: 131 (`A`→95), 224 (`B`→92), 314 (`C`→89), 380 (`AA`→65), 443 (`AB`→62), 479 (`BA`→35), 672 (`1`→95), 480–576 (`0`: ningún valor 0–96 pasa), 674 (`0;98` pasa). Mensajes nuevos: 675, 677, 678, 679. Ejemplos: 3, 4, 5. | confirmado |
+| INT-06 | **Algoritmo del control.** Sobre el mensaje sin el control (segmentos unidos por `;`): cada letra ASCII A–Z, sin distinguir mayúsculas, se reemplaza por su posición (A=1 … Z=26); cada dígito ASCII queda igual; cualquier otro carácter (`;`, `-`, espacios, tildes, `ñ`) se ignora. Las letras no ASCII se ignoran aunque su mayúscula sea ASCII: `ß` no cuenta como `SS`, ni `ı` como `I`, ni `ﬁ` como `FI`. N puede tener miles de dígitos (un nombre de 4.000 letras), así que conviene calcular el módulo dígito a dígito. Se concatena todo como un número entero N (0 si no queda nada) y el control es `98 − (N × 100 mod 97)`, un valor entre 1 y 98. Ejemplo: `PING` → `16 9 14 7` → N = 169147 → control 64. | Oráculo: 131 (`A`→95), 224 (`B`→92), 314 (`C`→89), 380 (`AA`→65), 443 (`AB`→62), 479 (`BA`→35), 672 (`1`→95), 480–576 (`0`: ningún valor 0–96 pasa), 674 (`0;98` pasa). Mensajes nuevos: 675, 677, 678, 679. Ejemplos: 3, 4, 5. No ASCII: 2208–2217. N enorme: 2120, 2122. | confirmado |
 | INT-07 | Un control bien formado que no coincide responde `400 {"error":"E202","mensaje":"control inválido"}`. | 3, 23, 32, 1006, 1007, 1008, 1009 | confirmado |
 | INT-08 | El control es el mismo sin importar mayúsculas: `CONSULTa`, `consulta` y `ac-0001` usan el control de la versión en mayúsculas. | 12, 30, 31 | confirmado |
+| INT-10 | La comparación del comando solo pasa a mayúsculas las letras ASCII: `pıng` (con `ı` sin punto) no es PING, así que pasa por la validación normal del control (E201 o E202). | 2218, 2219, 2220 | confirmado |
 | INT-09 | El control se valida antes que el comando y la aridad: un comando desconocido o con aridad mala y control incorrecto responde E202. | 32, 33, 34 | confirmado |
 
 ## 3. Comandos
@@ -152,7 +157,8 @@ Todos los cuerpos de error son `{"error": <código>, "mensaje": <texto>}`; E301 
 | E404 | 404 | `ruta desconocida` | método y ruta no existen | 680 |
 | E001 | 401 | `no autorizado` | sin token o token distinto | 690 |
 | E599 | 503 | `service halted` | servicio detenido (y respuesta de `HALT;1`) | 831, 834 |
-| E100 | 400 | `json inválido` | el cuerpo no es JSON | 698 |
+| E101 | 413 | `cuerpo demasiado grande` | cuerpo de `/msg` de más de 8.192 bytes | 2109 |
+| E100 | 400 | `json inválido` | el cuerpo no es JSON válido o supera 20 niveles de profundidad | 698, 2702 |
 | E102 | 400 | `falta m` | no hay `m` string en un objeto | 703 |
 | E103 | 400 | `falta control` | `m` sin `;` | 708 |
 | E104 | 400 | `segmento vacío` | algún segmento vacío | 715 |
@@ -170,17 +176,18 @@ Todos los cuerpos de error son `{"error": <código>, "mensaje": <texto>}`; E301 
 
 | ID | Orden de evaluación | Evidencia | Confianza |
 |---|---|---|---|
-| ERR-01 | Ruta (E404) → autenticación (E001) → servicio detenido (E599) → JSON (E100) → `m` (E102) → `;` (E103) → segmentos vacíos (E104) → [si es PING: aridad (E302) y pong] → formato del control (E201) → valor del control (E202) → comando (E301) → aridad (E302) → reglas del comando. | 693, 843, 844, 841, 1000, 999, 718, 32, 33, 34 | confirmado |
+| ERR-01 | Ruta (E404) → autenticación (E001) → servicio detenido (E599) → tamaño del cuerpo (E101) → JSON y profundidad (E100) → `m` (E102) → `;` (E103) → segmentos vacíos (E104) → [si es PING: aridad (E302) y pong] → formato del control (E201) → valor del control (E202) → comando (E301) → aridad (E302) → reglas del comando. | 693, 843, 844, 841, 2115, 2116, 2124, 2117, 1000, 999, 718, 32, 33, 34 | confirmado |
 | ERR-02 | DEPOSITO: monto (E303) → cuenta (E401). | 891, 890 | probable |
 | ERR-03 | TRANSFER: monto (E303) → origen = destino (E304) → existencia (E401) → límite (E506) → saldo (E507). | 918, 1024, 1025, 920, 921, 922, 919, 923 | confirmado |
-| ERR-04 | Errores de JSON poco comunes (`NaN`, `Infinity`, claves duplicadas, BOM) siguen la semántica de `JSON.parse`: `NaN` e `Infinity` son E100 y en claves duplicadas gana la última. | — | supuesto |
+| ERR-04 | Errores de JSON poco comunes: `NaN` y BOM son E100; con claves duplicadas gana la última; números fuera de rango o enteros enormes en claves que no son `m` no afectan. `Infinity` sin probar: el reemplazo lo trata como E100. | 2079, 2078, 2084, 2664, 2665 | confirmado (Infinity: supuesto) |
 
 ## 6. Cambios durante el día
 
 | ID | Comportamiento | Evidencia | Confianza |
 |---|---|---|---|
 | CHG-01 | Los 20 ejemplos grabados con la versión de la mañana se reprodujeron sin diferencias al inicio de la exploración, a las 11:08 hora local (el campo `ts` del log está en UTC: 16:08). | 1–21 | confirmado |
-| CHG-02 | Un monitor (`lab/monitor.py`) repite cada 45 minutos 6 secuencias del log (109 pasos: ejemplos, transfer, anula, integridad, sugerencias y halt) contra el original y compara status y body. Las pasadas de las 11:59 y las 12:00 (hora local) no encontraron cambios. Los resultados de cada pasada quedan en `lab/cambios.log`. | 1034–1142 y siguientes `monitor-*` | confirmado |
+| CHG-02 | Un monitor (`lab/monitor.py`) repite cada 45 minutos 6 secuencias del log (109 pasos: ejemplos, transfer, anula, integridad, sugerencias y halt) contra el original y compara status y body. Las pasadas de las 11:59, 12:00, 12:46 y 13:24 (hora local) no encontraron cambios. Los resultados quedan en `lab/cambios.log`. | secuencias `monitor-*` del log | confirmado |
+| CHG-03 | A las 12:57 repetimos contra el original todas las secuencias registradas hasta ese momento (417 pasos): ninguna respuesta cambió. Además, el fuzzer diferencial (`lab/fuzz.py`, unas 130 secuencias aleatorias) y la matriz de errores (`lab/scenarios.py`) no encontraron diferencias entre el original y el reemplazo en la lógica de comandos. | `monitor-1257-*`, `fuzz-*`, `matriz-*` | confirmado |
 
 ## 7. Riesgos
 
@@ -197,3 +204,5 @@ conserva porque el reto exige un comportamiento idéntico.
 | RSK-06 | ALTA acepta cualquier nombre (un espacio, 1.000 caracteres, duplicados) y no lo guarda. | 854, 858, 849 | Validar y guardar el titular. |
 | RSK-07 | El contrato es inconsistente: `recieved`, `"comando desconocido "` con espacio, `cuentaId` frente a `cuenta_id`, `200` con `ok:false` en "ya anulada" y mensajes mezclando español e inglés. | 7, 13, 4, 6, 15, 831 | Publicar una versión nueva del contrato manteniendo la actual por compatibilidad. |
 | RSK-08 | Los depósitos no tienen tope acumulado: el saldo crece sin límite. | 902 | Tope por operación y por día, alineado con las reglas del negocio. |
+| RSK-09 | Con anidamientos JSON muy profundos el original llegó a responder `500` sin `mensaje`, de forma intermitente: el parser no está protegido. | 2661, 2662, 2673 | Limitar profundidad y tamaño antes de parsear y devolver siempre un error del contrato. |
+| RSK-10 | Los bytes UTF-8 inválidos se aceptan en silencio y se reemplazan por `U+FFFD`: un nombre se puede guardar corrupto sin que el cliente lo sepa. | 2223, 2227 | Rechazar cuerpos con UTF-8 inválido con un error explícito. |
