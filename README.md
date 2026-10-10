@@ -3,6 +3,7 @@
 Reemplazo del servicio `caja-negra`, construido solo a partir de experimentos contra el original.
 
 - `server.py` — el reemplazo. Python estándar, sin dependencias, un solo proceso con estado en memoria.
+- `SPEC.md` — especificación del servicio, con la evidencia de cada comportamiento en el log.
 - `lab/` — laboratorio: cliente que registra cada request al original (`experimentos.jsonl`),
   oráculo del dígito de control, scripts de exploración y la regresión `replay_log.py`.
 
@@ -22,3 +23,14 @@ TEAM_TOKEN=<token> REPLACEMENT_URL=http://localhost:8000 python3 lab/replay_log.
 ## Despliegue
 
 Railway: `python server.py`, variable `TEAM_TOKEN`, una sola réplica (el estado vive en memoria).
+
+Desplegado en `https://web-production-05984.up.railway.app`.
+
+## Monitor de cambios del original
+
+```bash
+python3 lab/monitor.py            # una pasada
+python3 lab/monitor.py --loop 2700  # cada 45 minutos hasta las 19:50
+```
+
+Cada pasada repite secuencias ya registradas contra el original y deja el resultado en `lab/cambios.log`.
