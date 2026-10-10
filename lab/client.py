@@ -10,6 +10,7 @@ Config en lab/.env (no se sube al repo):
 import http.client
 import json
 import os
+import re
 import time
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
@@ -128,7 +129,7 @@ def send(method, path, *, base=None, body=None, json_body=_DEFAULT, headers=None
             entry["ruta"] = path
         custom = next((v for k, v in (headers or {}).items() if k.lower() == "authorization"), None)
         if custom is not None:
-            entry["auth_header"] = custom.replace(TOKEN, "<TOKEN>") if TOKEN else custom
+            entry["auth_header"] = re.sub(re.escape(TOKEN), "<TOKEN>", custom, flags=re.I) if TOKEN else custom
         elif tok != TOKEN:
             entry["auth"] = "sin token" if tok is None else "token distinto"
         if json_body is _DEFAULT and raw_body:
