@@ -259,6 +259,14 @@ def _reject_constant(name):
 # --- HTTP ---------------------------------------------------------------------
 
 ROUTES = {("GET", "/health"), ("POST", "/msg"), ("POST", "/__reset")}
+# Métodos que acepta el parser HTTP del original (Node): el resto, incluidos los que vienen en
+# minúsculas, se rechaza con 400 sin cuerpo antes de llegar a las rutas.
+NODE_METHODS = {
+    "ACL", "BIND", "CHECKOUT", "COPY", "DELETE", "GET", "HEAD", "LINK", "LOCK", "M-SEARCH", "MERGE",
+    "MKACTIVITY", "MKCALENDAR", "MKCOL", "MOVE", "NOTIFY", "OPTIONS", "PATCH", "POST", "PROPFIND", "PROPPATCH",
+    "PURGE", "PUT", "QUERY", "REBIND", "REPORT", "SEARCH", "SOURCE", "SUBSCRIBE", "TRACE", "UNBIND", "UNLINK",
+    "UNLOCK", "UNSUBSCRIBE",
+}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -316,7 +324,22 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(*err(413, "E101", "cuerpo demasiado grande"))
             return self._send(*handle_message(STATE, body))
 
+    def _bad_method(self, status=400):
+        self.close_connection = True
+        self.send_response(status)
+        self.send_header("Content-Length", "0")
+        self.send_header("Connection", "close")
+        self.end_headers()
+
     do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = do_OPTIONS = _dispatch
+
+    def __getattr__(self, name):
+        # http.server busca do_<MÉTODO>; sin esto respondería 501 con una página HTML.
+        if name == "do_CONNECT":  # el proxy delante del original responde 405 vacío
+            return lambda: self._bad_method(405)
+        if name.startswith("do_"):
+            return self._dispatch if name[3:] in NODE_METHODS else self._bad_method
+        raise AttributeError(name)
 
 
 if __name__ == "__main__":
