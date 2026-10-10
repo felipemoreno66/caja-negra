@@ -3,6 +3,8 @@
 Reimplementación posible sin tocar el original. Cada comportamiento cita las líneas (`id`) de
 [`lab/experimentos.jsonl`](lab/experimentos.jsonl) que lo prueban.
 
+**Versión.** El servicio pasó a la versión 2 entre las 15:50:56 y las 15:56:03 (hora local). Esta especificación describe la **versión 2**, que es la que se evalúa; donde la versión 1 era distinta se indica junto a cada comportamiento, y el detalle está en la sección 6.
+
 Confianza: **confirmado** (probado y se repite), **probable** (visto una vez o inferido),
 **supuesto** (no probado; es lo que hace nuestro reemplazo por defecto).
 
@@ -89,7 +91,7 @@ Cualquier otra cantidad de argumentos responde `400 {"error":"E302","mensaje":"a
 
 | ID | Comportamiento | Evidencia | Confianza |
 |---|---|---|---|
-| CMD-CONS-1 | Responde `200 {"cuenta_id":"AC-0001","saldo":0}`. Ojo: la clave es `cuenta_id`, no `cuentaId` como en ALTA. | 6, 9, 20, 860, 872 | confirmado |
+| CMD-CONS-1 | Responde `200 {"cuenta_id":"AC-0001","saldo":"0.00"}`. **v2:** el saldo es un string con el valor guardado dividido entre 100 y siempre 2 decimales, sin separador de miles: 1 → `"0.01"`, 10 → `"0.10"`, 40000 → `"400.00"`, 10000000009 → `"100000000.09"`, −2 → `"-0.02"`, 0 → `"0.00"` (nunca `-0.00`). En v1 era el número entero (`"saldo":40000`). La clave es `cuenta_id`, no `cuentaId` como en ALTA. | v2: 5337, 6126, 6128, 6130, 6132, 6137, 6143. v1: 6, 9, 20 | confirmado |
 | CMD-CONS-2 | El id debe coincidir exactamente: `ac-0001`, `AC-1`, `AC-00001`, `AC0001`, `0001`, `XX-0001`, `OP-0001` o con espacio final responden `404 {"error":"E401","mensaje":"cuenta inexistente"}`. | 16, 861, 862, 863, 864, 865, 866, 867, 868, 871 | confirmado |
 
 ### DEPOSITO;cuenta;monto
@@ -108,9 +110,11 @@ Cualquier otra cantidad de argumentos responde `400 {"error":"E302","mensaje":"a
 | CMD-TRF-1 | Mismas reglas de monto que DEPOSITO → `400 E303`. | 917, 918, 1024, 1031 | confirmado |
 | CMD-TRF-2 | Origen igual a destino → `400 {"error":"E304","mensaje":"origen y destino iguales"}`, aunque la cuenta no exista. | 913, 922, 1025 | confirmado |
 | CMD-TRF-3 | Origen o destino inexistente → `404 E401`. | 914, 915, 916, 920, 921 | confirmado |
-| CMD-TRF-4 | Monto mayor que 100.000 → `422 {"error":"E506","mensaje":"límite excedido"}`. El límite es por operación, no acumulado: 100.000 + 100.000 + 50.000 seguidas pasan. | 10, 907, 908, 909, 910, 919, 923 | confirmado |
+| CMD-TRF-4 | **v2:** monto mayor que **50.000** → `422 {"error":"E506","mensaje":"límite excedido"}`; 50.000 exacto pasa (búsqueda binaria). En v1 el límite era 100.000. Sigue siendo por operación, no acumulado. | v2: 5342, 6014–6059 (6056: 50.001 rechazado, 6059: 50.000 aceptado). v1: 10, 907–910 | confirmado |
 | CMD-TRF-5 | Saldo del origen menor que el monto → `422 {"error":"E507","mensaje":"saldo insuficiente"}`. Transferir exactamente todo el saldo está permitido. | 17, 942, 1026, 1027 | confirmado |
 | CMD-TRF-6 | Si todo está bien, mueve el saldo y responde `200 {"status":"recieved","operacionId":"OP-0002"}`. | 8, 9, 11, 911, 912 | confirmado |
+| CMD-TRF-7 | **v2, bloqueo de cuenta.** Cada rechazo de una TRANSFER por límite (E506) o por saldo (E507) suma 1 a un contador de la cuenta de **origen**, en cualquier combinación. Al llegar a **3 rechazos seguidos** la cuenta queda bloqueada (el tercer rechazo todavía responde E506/E507). Una transferencia exitosa desde esa cuenta reinicia el contador. Los errores E303, E304 y E401 no cuentan. | 5601–5604, 6065–6068, 6085–6088 (solo E507), 6221–6224 (mezclados), 6093–6096 (E303/E401 no cuentan), 6101–6107 (no consecutivos no bloquean) | confirmado |
+| CMD-TRF-8 | **v2.** Con la cuenta bloqueada, toda TRANSFER **desde** ella que pase E303, E304 y E401 responde `423 {"error":"E510","mensaje":"cuenta bloqueada","intentos":N}`, aunque el monto supere el límite o el saldo; N empieza en 1 y sube en cada intento. Se puede depositar en ella, consultarla, transferirle y anular sus operaciones. **Solo un DEPOSITO en la cuenta la desbloquea** y reinicia el contador y los intentos; consultar, recibir transferencias, anular o el paso del tiempo no. El reset también la desbloquea. | 5604, 5735–5740, 6068–6072, 6156–6158 (depósito desbloquea), 6167–6169, 6178–6180, 6189–6191, 6200–6205 (no desbloquean), 6214–6216, 6224–6230 (intentos vuelve a 1), 6235–6239 (depósito reinicia el contador), 6120–6123 | confirmado |
 
 ### ANULA;operacion
 
@@ -140,12 +144,12 @@ Cualquier otra cantidad de argumentos responde `400 {"error":"E302","mensaje":"a
 
 | ID | Comportamiento | Evidencia | Confianza |
 |---|---|---|---|
-| MEM-01 | El servicio recuerda: cuentas y saldos, operaciones (tipo, cuentas, monto, si está anulada), dos contadores de id y si está detenido. | secciones 3 y 4 | confirmado |
+| MEM-01 | El servicio recuerda: cuentas y saldos, operaciones (tipo, cuentas, monto, si está anulada), dos contadores de id, si está detenido y, **en v2**, por cuenta: rechazos seguidos como origen, si está bloqueada y sus intentos. | secciones 3 y 4 | confirmado |
 | MEM-02 | El contador de cuentas empieza en 1 tras el reset y solo avanza con un ALTA exitoso. | 4, 5, 675, 848–859 | confirmado |
 | MEM-03 | El contador de operaciones es compartido entre DEPOSITO y TRANSFER, empieza en 1 tras el reset y solo avanza con operaciones exitosas. Las fallidas y las anulaciones no consumen id. | 7, 8, 11, 19, 906–910, 1021, 1022, 1023 | confirmado |
 | MEM-04 | Los saldos se acumulan entre requests y las anulaciones los revierten (ver CMD-ANU-3). | 9, 12, 20, 911, 912, 932, 933, 935 | confirmado |
 | MEM-05 | Tras `HALT;1`, todo `POST /msg` autenticado responde `503 E599`, incluso con JSON roto o `m` vacío, hasta el próximo `/__reset`. `/health`, las rutas inexistentes y los requests sin token no se ven afectados. | 834–844, 846 | confirmado |
-| MEM-06 | `/__reset` borra cuentas y operaciones, reinicia los contadores y quita el estado detenido. | 845, 846, 675 | confirmado |
+| MEM-06 | `/__reset` borra cuentas y operaciones, reinicia los contadores, quita el estado detenido y, en v2, los bloqueos. | 845, 846, 675, 6120–6123 | confirmado |
 | MEM-07 | Con el mismo orden de requests tras un reset, las respuestas son idénticas: los 20 ejemplos de la mañana se reprodujeron 20/20 y el monitor repitió 109 pasos sin diferencias. | 1–21, 1034–1142 | confirmado |
 | MEM-08 | El header `X-Req` cuenta los requests del token y no se reinicia con `/__reset` (por ejemplo, `x_req` 671 en la línea 674, justo después de un reset). No se compara en la evaluación y el reemplazo no lo emite. | 2, 674 | probable |
 
@@ -172,14 +176,15 @@ Todos los cuerpos de error son `{"error": <código>, "mensaje": <texto>}`; E301 
 | E401 | 404 | `cuenta inexistente` | cuenta no existe | 16 |
 | E402 | 404 | `operación inexistente` | operación no existe | 936 |
 | E506 | 422 | `límite excedido` | TRANSFER > 100.000 | 10 |
-| E507 | 422 | `saldo insuficiente` | TRANSFER sin fondos | 17 |
+| E507 | 422 | `saldo insuficiente` | TRANSFER sin fondos (en v2 cuenta para el bloqueo) | 17, 6085 |
+| E510 | 423 | `cuenta bloqueada` + campo `intentos` | **v2:** TRANSFER desde una cuenta bloqueada | 5604, 6068 |
 | E520 | 409 | `operación destructiva: detiene el servicio; reenvía con confirmación` | HALT sin confirmar | 815 |
 
 | ID | Orden de evaluación | Evidencia | Confianza |
 |---|---|---|---|
 | ERR-01 | Ruta (E404) → autenticación (E001) → servicio detenido (E599) → tamaño del cuerpo (E101) → JSON y profundidad (E100) → `m` (E102) → `;` (E103) → segmentos vacíos (E104) → [si es PING: aridad (E302) y pong] → formato del control (E201) → valor del control (E202) → comando (E301) → aridad (E302) → reglas del comando. | 693, 843, 844, 841, 2115, 2116, 2124, 2117, 1000, 999, 718, 32, 33, 34 | confirmado |
 | ERR-02 | DEPOSITO: monto (E303) → cuenta (E401). | 891, 890 | probable |
-| ERR-03 | TRANSFER: monto (E303) → origen = destino (E304) → existencia (E401) → límite (E506) → saldo (E507). | 918, 1024, 1025, 920, 921, 922, 919, 923 | confirmado |
+| ERR-03 | TRANSFER: monto (E303) → origen = destino (E304) → existencia (E401) → **cuenta bloqueada (E510, v2)** → límite (E506) → saldo (E507). | 918, 1024, 1025, 920, 921, 922, 919, 923; v2: 5611, 5607, 5608, 6214, 6215 | confirmado |
 | ERR-04 | Errores de JSON poco comunes: `NaN` y BOM son E100; con claves duplicadas gana la última; números fuera de rango o enteros enormes en claves que no son `m` no afectan. `Infinity` sin probar: el reemplazo lo trata como E100. | 2079, 2078, 2084, 2664, 2665 | confirmado (Infinity: supuesto) |
 
 ## 6. Cambios durante el día
@@ -189,6 +194,12 @@ Todos los cuerpos de error son `{"error": <código>, "mensaje": <texto>}`; E301 
 | CHG-01 | Los 20 ejemplos grabados con la versión de la mañana se reprodujeron sin diferencias al inicio de la exploración, a las 11:08 hora local (el campo `ts` del log está en UTC: 16:08). | 1–21 | confirmado |
 | CHG-02 | Un monitor (`lab/monitor.py`) repite cada 45 minutos 6 secuencias del log (109 pasos: ejemplos, transfer, anula, integridad, sugerencias y halt) contra el original y compara status y body. Las pasadas de las 11:59, 12:00, 12:46 y 13:24 (hora local) no encontraron cambios. Los resultados quedan en `lab/cambios.log`. | secuencias `monitor-*` del log | confirmado |
 | CHG-03 | A las 12:57 repetimos contra el original todas las secuencias registradas hasta ese momento (417 pasos): ninguna respuesta cambió. Además, el fuzzer diferencial (`lab/fuzz.py`, unas 130 secuencias aleatorias) y la matriz de errores (`lab/scenarios.py`) no encontraron diferencias entre el original y el reemplazo en la lógica de comandos. | `monitor-1257-*`, `fuzz-*`, `matriz-*` | confirmado |
+| CHG-04 | **Detección de la versión 2.** El detector (`lab/monitor.py --seqs ejemplos-oficiales --loop 300`) repite los 20 ejemplos cada 5 minutos. La pasada de las 15:50:56 coincidió en todo (líneas 5311–5331); la de las 15:56:03 encontró 8 diferencias (líneas 5332–5352). El cambio ocurrió en esa ventana. El proveedor abrió el ticket FR-0153 a las 15:30 anunciando 3 cambios. | 5311–5352, `lab/cambios.log` | confirmado |
+| CHG-05 | **Diagnóstico.** Las 8 diferencias de los ejemplos se explican por solo 2 causas (saldo y límite), el resto son efectos en cadena: al rechazarse la TRANSFER de 100.000, OP-0003 no existe, el ANULA siguiente da E402 y el DEPOSITO recibe OP-0003 en vez de OP-0004. Después repetimos 657 pasos de comportamientos conocidos contra la v2 (líneas 5353–6009): aparecieron el bloqueo (E510) y nada más (las diferencias de autenticación eran un fallo de nuestra herramienta, que no reenviaba el header; verificado en 6144–6147). | 5342, 5345, 5346, 5350, 5353–6009, 6144–6147 | confirmado |
+| CHG-06 | **Cambio 1, formato del saldo:** de número entero a string con 2 decimales y el valor dividido entre 100 (ver CMD-CONS-1). | 5337 frente a 6; 6126–6143 | confirmado |
+| CHG-07 | **Cambio 2, límite de transferencia:** de 100.000 a 50.000 (ver CMD-TRF-4). | 5342 frente a 11; 6014–6059 | confirmado |
+| CHG-08 | **Cambio 3, bloqueo de cuenta tras 3 rechazos seguidos** (nuevo error E510, ver CMD-TRF-7 y CMD-TRF-8). | 5604, 5735–5740, 6061–6239 | confirmado |
+| CHG-09 | **Verificación.** El reemplazo adaptado pasa el 100% de la regresión sobre todo lo grabado contra la v2 (`lab/replay_log.py --desde 2026-10-10T20:51`) y el fuzzing diferencial contra la v2 no encontró diferencias, incluidas 15 secuencias dirigidas al bloqueo con 42 E506, 37 E507 y 6 E510. | 6240–6788 | confirmado |
 
 ## 7. Riesgos
 
@@ -200,10 +211,12 @@ conserva porque el reto exige un comportamiento idéntico.
 | RSK-01 | `HALT` deja fuera de servicio todo `/msg` con una confirmación trivial (`1`) y sin ningún permiso especial. | 831, 834 | Sacar HALT del protocolo público; si hace falta, exigir un rol de administrador y una confirmación no adivinable. |
 | RSK-02 | Las sugerencias revelan comandos ocultos: `HELP` u `HOLA` sugieren `HALT`. | 756, 808 | No sugerir comandos administrativos, o quitar las sugerencias. |
 | RSK-03 | `ANULA` revierte sin validar saldos y deja cuentas en negativo; tampoco limita quién anula ni cuándo. | 933 | Validar fondos, registrar una operación compensatoria y restringir la anulación al titular y a una ventana de tiempo. |
-| RSK-04 | El límite de transferencia es por operación y se evade dividiendo el monto. | 908, 909, 910 | Límite acumulado por cuenta y por día. |
+| RSK-04 | El límite de transferencia (50.000 en v2) es por operación y se evade dividiendo el monto. | 908, 909, 910, 6020 | Límite acumulado por cuenta y por día. |
 | RSK-05 | El control mod 97 detecta errores de tipeo pero no autentica: cualquiera lo calcula. Además PING no lo valida. | INT-03, INT-06 | Firmar los mensajes con un HMAC con secreto y validar igual todos los comandos. |
 | RSK-06 | ALTA acepta cualquier nombre (un espacio, 1.000 caracteres, duplicados) y no lo guarda. | 854, 858, 849 | Validar y guardar el titular. |
 | RSK-07 | El contrato es inconsistente: `recieved`, `"comando desconocido "` con espacio, `cuentaId` frente a `cuenta_id`, `200` con `ok:false` en "ya anulada" y mensajes mezclando español e inglés. | 7, 13, 4, 6, 15, 831 | Publicar una versión nueva del contrato manteniendo la actual por compatibilidad. |
 | RSK-08 | Los depósitos no tienen tope acumulado: el saldo crece sin límite. | 902 | Tope por operación y por día, alineado con las reglas del negocio. |
 | RSK-09 | Con anidamientos JSON muy profundos el original llegó a responder `500` sin `mensaje`, de forma intermitente: el parser no está protegido. | 2661, 2662, 2673 | Limitar profundidad y tamaño antes de parsear y devolver siempre un error del contrato. |
 | RSK-10 | Los bytes UTF-8 inválidos se aceptan en silencio y se reemplazan por `U+FFFD`: un nombre se puede guardar corrupto sin que el cliente lo sepa. | 2223, 2227 | Rechazar cuerpos con UTF-8 inválido con un error explícito. |
+| RSK-11 | **v2:** el bloqueo se levanta con cualquier depósito, incluso de 1 céntimo, así que no protege nada frente a quien controle la cuenta; y `intentos` crece sin límite ni consecuencia. | 6157, 6158 | Desbloqueo por un canal verificado (soporte o segundo factor) y bloqueo temporal con tope de intentos. |
+| RSK-12 | **v2:** los montos se envían como enteros (céntimos) pero el saldo se devuelve como string decimal: un cliente que deposita `1` lee `"0.01"`. Mezclar unidades entre entrada y salida invita a errores de factor 100. | 6127, 6128 | Usar la misma unidad y el mismo tipo en entrada y salida, y documentarla. |
