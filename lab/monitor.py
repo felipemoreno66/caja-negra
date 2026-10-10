@@ -10,6 +10,8 @@ import json, sys, time
 from collections import OrderedDict
 from datetime import datetime
 from client import send, set_seq
+import os as _os
+_os.chdir(_os.path.dirname(_os.path.abspath(__file__)))  # rutas relativas a lab/, se ejecute desde donde se ejecute
 
 SEQS = ["ejemplos-oficiales", "transfer", "anula", "integridad-2", "sugerencias-empates", "halt-detenido"]
 

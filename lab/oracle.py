@@ -2,6 +2,8 @@
 hasta que el original deja de responder E202. Guarda resultados en controles.json."""
 import json, os, sys
 from client import msg, set_seq
+import os as _os
+_os.chdir(_os.path.dirname(_os.path.abspath(__file__)))  # rutas relativas a lab/, se ejecute desde donde se ejecute
 
 DB = "controles.json"
 known = json.load(open(DB)) if os.path.exists(DB) else {}

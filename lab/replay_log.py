@@ -7,6 +7,8 @@ JSON sin importar orden de claves; si no es JSON, texto exacto.
 import json, os, sys
 from collections import OrderedDict
 from client import send
+import os as _os
+_os.chdir(_os.path.dirname(_os.path.abspath(__file__)))  # rutas relativas a lab/, se ejecute desde donde se ejecute
 
 BASE = os.environ.get("REPLACEMENT_URL", "http://localhost:8000")
 TEAM = os.environ["TEAM_TOKEN"]
