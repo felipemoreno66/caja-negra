@@ -3,6 +3,7 @@ con lo que respondió antes. Cada request queda en el log como un experimento m�
 
   python3 lab/monitor.py              # una pasada
   python3 lab/monitor.py --all        # todas las secuencias del log
+  python3 lab/monitor.py --seqs ejemplos-oficiales --loop 300  # detector rápido cada 5 minutos
   python3 lab/monitor.py --loop 3600  # una pasada cada hora hasta las 19:50
 """
 import json, sys, time
@@ -63,6 +64,8 @@ if __name__ == "__main__":
     if "--all" in sys.argv:
         SEQS[:] = [k for k, v in load().items()
                    if not k.startswith(("monitor-", "oraculo")) and (v[0].get("ruta") == "/__reset" or k.startswith("entrada-") or k == "ejemplos-oficiales")]
+    if "--seqs" in sys.argv:
+        SEQS[:] = sys.argv[sys.argv.index("--seqs") + 1].split(",")
     if "--loop" in sys.argv:
         every = int(sys.argv[sys.argv.index("--loop") + 1])
         while True:

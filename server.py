@@ -241,7 +241,7 @@ def handle_message(st, raw_body):
     ctl = segments[-1]
     if not CONTROL_RE.fullmatch(ctl):
         return err(400, "E201", "control mal formado")
-    if int(ctl) != control(";".join(segments[:-1])):
+    if ctl != str(control(";".join(segments[:-1]))):  # se compara como texto: "08" no es "8"
         return err(400, "E202", "control inválido")
     if cmd not in COMMANDS:
         sug = suggestion(cmd)
