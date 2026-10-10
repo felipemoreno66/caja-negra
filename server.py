@@ -27,6 +27,7 @@ COMMANDS = {  # comando -> cantidad de argumentos (sin contar el control)
 }
 TRANSFER_LIMIT = 100_000
 MAX_BODY_BYTES = 8192
+MAX_JSON_DEPTH = 20  # contando la raíz; arrays y objetos por igual
 CONTROL_RE = re.compile(r"[0-9]{1,2}", re.ASCII)
 AMOUNT_RE = re.compile(r"[1-9][0-9]{0,9}", re.ASCII)
 
@@ -190,12 +191,37 @@ HANDLERS = {
 }
 
 
+def json_depth(text):
+    """Profundidad máxima de arrays/objetos, sin recursión y sin contar lo que está dentro de strings."""
+    depth = deepest = 0
+    in_string = escaped = False
+    for ch in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch in "[{":
+            depth += 1
+            deepest = max(deepest, depth)
+        elif ch in "]}":
+            depth -= 1
+    return deepest
+
+
 def handle_message(st, raw_body):
     """Procesa el cuerpo de POST /msg en el mismo orden de validación que el original."""
     try:
         # Los bytes UTF-8 inválidos se reemplazan por U+FFFD, como hace el original.
-        payload = json.loads(raw_body.decode("utf-8", errors="replace"), parse_constant=_reject_constant)
-    except ValueError:
+        text = raw_body.decode("utf-8", errors="replace")
+        if json_depth(text) > MAX_JSON_DEPTH:
+            raise ValueError("demasiado profundo")
+        payload = json.loads(text, parse_constant=_reject_constant)
+    except (ValueError, RecursionError):
         return err(400, "E100", "json inválido")
     m = payload.get("m") if isinstance(payload, dict) else None
     if not isinstance(m, str):
@@ -253,8 +279,21 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(data)
 
     def _read_body(self):
+        if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+            return self._read_chunked()
         length = int(self.headers.get("Content-Length") or 0)
         return self.rfile.read(length) if length > 0 else b""
+
+    def _read_chunked(self):
+        data = bytearray()
+        while True:
+            size = int(self.rfile.readline().split(b";", 1)[0].strip() or b"0", 16)
+            if size == 0:
+                while self.rfile.readline().strip():  # trailers hasta la línea vacía
+                    pass
+                return bytes(data)
+            data += self.rfile.read(size)
+            self.rfile.readline()  # CRLF al final de cada trozo
 
     def _dispatch(self):
         # Ruta tal como llegó: http.server colapsa "//msg" a "/msg" en self.path, el original no.

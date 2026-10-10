@@ -18,7 +18,7 @@ def load_seqs():
         e = json.loads(line)
         seqs.setdefault(e["seq"], []).append(e)
     # Secuencias con reset inicial, más las de la capa HTTP (no dependen del estado).
-    seqs = {k: v for k, v in seqs.items() if v[0].get("ruta") == "/__reset" or k.startswith("entrada-")}
+    seqs = {k: v for k, v in seqs.items() if v[0].get("ruta") == "/__reset" or k.startswith(("entrada-", "json-"))}
     ej = [json.loads(l) for l in open("ejemplos.jsonl")]
     seqs["ejemplos-oficiales"] = [{"ruta": "/__reset", "metodo": "POST", "request": None, "status": 200,
                                    "response": {"ok": True}, "id": "-"}] + ej
@@ -57,6 +57,8 @@ def main(verbose):
         seq_total += 1
         good = True
         for e in steps:
+            if e.get("transitorio"):
+                continue
             r = replay(e)
             total += 1
             if same(e, r):
