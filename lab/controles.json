@@ -1,0 +1,69 @@
+{
+ "A": {
+  "control": 95,
+  "status": 400,
+  "response": {
+   "error": "E301",
+   "mensaje": "comando desconocido "
+  },
+  "log_id": 131
+ },
+ "B": {
+  "control": 92,
+  "status": 400,
+  "response": {
+   "error": "E301",
+   "mensaje": "comando desconocido "
+  },
+  "log_id": 224
+ },
+ "C": {
+  "control": 89,
+  "status": 400,
+  "response": {
+   "error": "E301",
+   "mensaje": "comando desconocido "
+  },
+  "log_id": 314
+ },
+ "AA": {
+  "control": 65,
+  "status": 400,
+  "response": {
+   "error": "E301",
+   "mensaje": "comando desconocido ",
+   "sugerencia": "ALTA"
+  },
+  "log_id": 380
+ },
+ "AB": {
+  "control": 62,
+  "status": 400,
+  "response": {
+   "error": "E301",
+   "mensaje": "comando desconocido "
+  },
+  "log_id": 443
+ },
+ "BA": {
+  "control": 35,
+  "status": 400,
+  "response": {
+   "error": "E301",
+   "mensaje": "comando desconocido "
+  },
+  "log_id": 479
+ },
+ "0": {
+  "control": null
+ },
+ "1": {
+  "control": 95,
+  "status": 400,
+  "response": {
+   "error": "E301",
+   "mensaje": "comando desconocido "
+  },
+  "log_id": 672
+ }
+}
