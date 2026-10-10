@@ -2,7 +2,7 @@
 POST /__reset (y los 20 ejemplos oficiales) y compara status + body como el evaluador:
 JSON sin importar orden de claves; si no es JSON, texto exacto.
 
-  REPLACEMENT_URL=http://localhost:8000 python3 lab/replay_log.py [--verbose]
+  REPLACEMENT_URL=http://localhost:8000 python3 lab/replay_log.py [--verbose] [--desde 2026-10-10T20:51]
 """
 import json, os, sys
 from collections import OrderedDict
@@ -12,14 +12,21 @@ BASE = os.environ.get("REPLACEMENT_URL", "http://localhost:8000")
 TEAM = os.environ["TEAM_TOKEN"]
 
 
+DESDE = sys.argv[sys.argv.index("--desde") + 1] if "--desde" in sys.argv else None  # ts UTC, p. ej. 2026-10-10T20:51
+
+
 def load_seqs():
     seqs = OrderedDict()
     for line in open("experimentos.jsonl"):
         e = json.loads(line)
         seqs.setdefault(e["seq"], []).append(e)
+    if DESDE:  # solo secuencias grabadas contra la versión vigente
+        seqs = OrderedDict((k, v) for k, v in seqs.items() if v[0].get("ts", "") >= DESDE)
     # Secuencias con reset inicial, más las de la capa HTTP (no dependen del estado).
     seqs = {k: v for k, v in seqs.items() if v[0].get("ruta") == "/__reset" or k.startswith(("entrada-", "json-"))}
     ej = [json.loads(l) for l in open("ejemplos.jsonl")]
+    if DESDE:
+        return seqs
     seqs["ejemplos-oficiales"] = [{"ruta": "/__reset", "metodo": "POST", "request": None, "status": 200,
                                    "response": {"ok": True}, "id": "-"}] + ej
     return seqs

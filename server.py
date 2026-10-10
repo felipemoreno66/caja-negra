@@ -25,7 +25,8 @@ COMMANDS = {  # comando -> cantidad de argumentos (sin contar el control)
     "PING": 1,  # PING no lleva control: su único argumento ocupa ese lugar
     "TRANSFER": 3,
 }
-TRANSFER_LIMIT = 100_000
+TRANSFER_LIMIT = 50_000  # v2 (desde ~15:51); en v1 era 100_000
+REJECTIONS_TO_BLOCK = 3  # v2: rechazos seguidos (E506/E507) que bloquean la cuenta de origen
 MAX_BODY_BYTES = 8192
 MAX_JSON_DEPTH = 20  # contando la raíz; arrays y objetos por igual
 CONTROL_RE = re.compile(r"[0-9]{1,2}", re.ASCII)
@@ -90,10 +91,22 @@ class State:
 
     def reset(self):
         self.halted = False
-        self.accounts = {}  # "AC-0001" -> saldo
+        self.accounts = {}  # "AC-0001" -> saldo en céntimos
         self.ops = {}  # "OP-0001" -> dict
+        self.rejections = {}  # v2: cuenta -> rechazos seguidos como origen (E506/E507)
+        self.blocked = {}  # v2: cuenta bloqueada -> intentos de transferir desde ella
         self.next_account = 1
         self.next_op = 1
+
+    def unblock(self, acc):
+        self.rejections.pop(acc, None)
+        self.blocked.pop(acc, None)
+
+    def reject(self, acc, status, code, mensaje):
+        self.rejections[acc] = self.rejections.get(acc, 0) + 1
+        if self.rejections[acc] >= REJECTIONS_TO_BLOCK:
+            self.blocked[acc] = 0
+        return err(status, code, mensaje)
 
     def new_op(self, **op):
         op_id = f"OP-{self.next_op:04d}"
@@ -123,7 +136,14 @@ def cmd_consulta(st, args):
     acc = args[0]
     if acc not in st.accounts:
         return err(404, "E401", "cuenta inexistente")
-    return 200, {"cuenta_id": acc, "saldo": st.accounts[acc]}
+    return 200, {"cuenta_id": acc, "saldo": format_saldo(st.accounts[acc])}
+
+
+def format_saldo(cents):
+    """v2: el saldo se muestra como texto en unidades con 2 decimales (40000 -> "400.00")."""
+    sign = "-" if cents < 0 else ""
+    cents = abs(cents)
+    return f"{sign}{cents // 100}.{cents % 100:02d}"
 
 
 def cmd_deposito(st, args):
@@ -134,6 +154,7 @@ def cmd_deposito(st, args):
         return err(404, "E401", "cuenta inexistente")
     monto = int(monto)
     st.accounts[acc] += monto
+    st.unblock(acc)  # v2: un depósito desbloquea la cuenta y reinicia sus rechazos
     return 200, {"status": "recieved", "operacionId": st.new_op(tipo="deposito", cuenta=acc, monto=monto)}
 
 
@@ -145,11 +166,15 @@ def cmd_transfer(st, args):
         return err(400, "E304", "origen y destino iguales")
     if origen not in st.accounts or destino not in st.accounts:
         return err(404, "E401", "cuenta inexistente")
+    if origen in st.blocked:  # v2
+        st.blocked[origen] += 1
+        return err(423, "E510", "cuenta bloqueada", intentos=st.blocked[origen])
     monto = int(monto)
     if monto > TRANSFER_LIMIT:
-        return err(422, "E506", "límite excedido")
+        return st.reject(origen, 422, "E506", "límite excedido")
     if st.accounts[origen] < monto:
-        return err(422, "E507", "saldo insuficiente")
+        return st.reject(origen, 422, "E507", "saldo insuficiente")
+    st.rejections.pop(origen, None)  # v2: una transferencia exitosa reinicia el contador
     st.accounts[origen] -= monto
     st.accounts[destino] += monto
     op_id = st.new_op(tipo="transfer", origen=origen, destino=destino, monto=monto)
